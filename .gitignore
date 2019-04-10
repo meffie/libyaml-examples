@@ -1,0 +1,6 @@
+*.o
+*.yaml
+core
+emit
+scan
+parse
