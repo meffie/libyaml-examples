@@ -50,17 +50,17 @@ using the libyaml emitter API. Example yaml data to be parsed:
     ---
     fruit:
     - name: apple
-    color: red
-    count: 12
+      color: red
+      count: 12
     - name: orange
-    color: orange
-    count: 3
+      color: orange
+      count: 3
     - name: bannana
-    color: yellow
-    count: 4
+      color: yellow
+      count: 4
     - name: mango
-    color: green
-    count: 1
+      color: green
+      count: 1
     ...
 
     $ ./parse < fruit.yaml
