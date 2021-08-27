@@ -22,10 +22,10 @@
  *    ...
  *
  *    $ ./parse < fruit.yaml
- *    data[0]={name=apple, color=red, count=12}
- *    data[1]={name=orange, color=orange, count=3}
- *    data[2]={name=bannana, color=yellow, count=4}
- *    data[3]={name=mango, color=green, count=1}
+ *    name=apple, color=red, count=12
+ *    name=orange, color=orange, count=3
+ *    name=bannana, color=yellow, count=4
+ *    name=mango, color=green, count=1
  *
  * See the libyaml project page http://pyyaml.org/wiki/LibYAML
  */
@@ -34,12 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-/* Example data structure */
-struct fruit {
-    char *name;
-    char *color;
-    int count;
-};
+#include "fruit.h"
 
 /* Our example parser states. */
 enum state_value {
@@ -221,10 +216,8 @@ int main(int argc, char *argv[])
     yaml_parser_t parser;
     yaml_event_t event;
     struct parser_state state = {.state=START, .accepted=0, .error=0};
-    struct fruit data[64];
-    int i = 0;
+    struct fruits list = {.head=NULL, .tail=NULL};
 
-    memset(data, 0, sizeof(data));
     yaml_parser_initialize(&parser);
     yaml_parser_set_input_file(&parser, stdin);
 
@@ -235,18 +228,19 @@ int main(int argc, char *argv[])
         if (!consume_event(&state, &event)) {
             goto error;
         }
-        if (state.accepted && i < sizeof(data)/sizeof(*data)) {
-            data[i].name = state.data.name;
-            data[i].color = state.data.color;
-            data[i].count = state.data.count;
-            printf("data[%d]={name=%s, color=%s, count=%d}\n",
-                i, data[i].name, data[i].color, data[i].count);
-            i++;
+        if (state.accepted) {
+            add_fruit(&list, state.data.name, state.data.color, state.data.count);
         }
         yaml_event_delete(&event);
     } while (state.state != STOP);
 
     yaml_parser_delete(&parser);
+
+    for (struct fruit *f = list.head; f; f = f->next) {
+        printf("name=%s, color=%s, count=%d\n", f->name, f->color, f->count);
+    }
+    destroy_fruits(&list);
+
     return 0;
 
 error:

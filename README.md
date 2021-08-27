@@ -7,20 +7,19 @@ the [libyaml library](http://pyyaml.org/wiki/LibYAML).
 
 `emit.c` is a basic example to demonstrate how to convert raw c structs to a
 yaml stream using the libyaml emitter API.  The example data to be converted is
-is a simple array of structs:
+is a simple linked list of structs:
 
     struct fruit {
+        struct fruit *next;
         char *name;
         char *color;
         int count;
     };
-    struct fruit data[] = {
-        {"apple", "red", 12},
-        {"orange", "orange", 3},
-        {"bannana", "yellow", 4},
-        {"mango", "green", 1},
-        {NULL, NULL, 0}
-    };
+    ...
+    add_fruit(&list, "apple", "red", 12);
+    add_fruit(&list, "orange", "orange", 3);
+    add_fruit(&list, "bannana", "yellow", 4);
+    add_fruit(&list, "mango", "green", 1);
 
 The example data is converted into a yaml sequence of mapped values,
 
@@ -64,10 +63,10 @@ using the libyaml emitter API. Example yaml data to be parsed:
     ...
 
     $ ./parse < fruit.yaml
-    data[0]={name=apple, color=red, count=12}
-    data[1]={name=orange, color=orange, count=3}
-    data[2]={name=bannana, color=yellow, count=4}
-    data[3]={name=mango, color=green, count=1}
+    name=apple, color=red, count=12
+    name=orange, color=orange, count=3
+    name=bannana, color=yellow, count=4
+    name=mango, color=green, count=1
 
 ## Scanner example
 

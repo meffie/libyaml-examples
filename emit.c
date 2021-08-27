@@ -3,17 +3,12 @@
  *
  * This is a basic example to demonstrate how to convert raw data to a yaml
  * stream using the libyaml emitter API. The example data to be converted is
- * is a simple array of structs,
+ * a simple linked list of structs:
  *
- *    struct fruit data[] = {
- *        {"apple", "red", 12},
- *        {"orange", "orange", 3},
- *        {"bannana", "yellow", 4},
- *        {"mango", "green", 1},
- *        {NULL, NULL, 0}
- *    };
+ *   list -> {"apple", "red", 12} -> {"orange", "orange", 3} ->
+ *           {"bannana", "yellow", 4} -> {"mango", "green", 1}
  *
- * The exmaple data is converted into a yaml sequence of mapped values,
+ * The example data is converted into a yaml sequence of mapped values:
  *
  *    $ ./emit
  *    ---
@@ -32,11 +27,11 @@
  *      count: 1
  *    ...
  *
- * This example can be built and run on linux with the commands:
+ * This example can be built and run on Linux with the commands:
  *
- *     gcc -c emit.c -g -O0 -Wall
- *     gcc -o emit emit.o -lyaml
- *     ./emit
+ *     $ sudo apt install libyaml-dev  # if Debian or Ubuntu
+ *     $ make emit
+ *     $ ./emit
  *
  * See the libyaml project page http://pyyaml.org/wiki/LibYAML
  */
@@ -45,26 +40,21 @@
 #include <stdlib.h>
 #include <string.h>
 
-struct fruit {
-    char *name;
-    char *color;
-    int count;
-};
-struct fruit data[] = {
-    {"apple", "red", 12},
-    {"orange", "orange", 3},
-    {"bannana", "yellow", 4},
-    {"mango", "green", 1},
-    {NULL, NULL, 0}
-};
+#include "fruit.h"
 
 int main(int argc, char *argv[])
 {
     yaml_emitter_t emitter;
     yaml_event_t event;
-    struct fruit *f;
-    char buffer[64];
+    struct fruits list = {.head=NULL, .tail=NULL};
 
+    /* Create our list of elements. */
+    add_fruit(&list, "apple", "red", 12);
+    add_fruit(&list, "orange", "orange", 3);
+    add_fruit(&list, "bannana", "yellow", 4);
+    add_fruit(&list, "mango", "green", 1);
+
+    /* Emit list as yaml. */
     yaml_emitter_initialize(&emitter);
     yaml_emitter_set_output_file(&emitter, stdout);
 
@@ -86,7 +76,9 @@ int main(int argc, char *argv[])
        1, YAML_ANY_SEQUENCE_STYLE);
     if (!yaml_emitter_emit(&emitter, &event)) goto error;
 
-    for (f = data; f->name; f++) {
+    for (struct fruit *f = list.head; f; f = f->next) {
+        char buffer[80];
+
         yaml_mapping_start_event_initialize(&event, NULL, (yaml_char_t *)YAML_MAP_TAG,
             1, YAML_ANY_MAPPING_STYLE);
         if (!yaml_emitter_emit(&emitter, &event)) goto error;
@@ -111,7 +103,9 @@ int main(int argc, char *argv[])
             (yaml_char_t *)"count", strlen("count"), 1, 0, YAML_PLAIN_SCALAR_STYLE);
         if (!yaml_emitter_emit(&emitter, &event)) goto error;
 
-        sprintf(buffer, "%d", f->count);
+        if (snprintf(buffer, sizeof(buffer), "%d", f->count) >= sizeof(buffer)) {
+            bail("buffer truncation");
+        }
         yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_INT_TAG,
             (yaml_char_t *)buffer, strlen(buffer), 1, 0, YAML_PLAIN_SCALAR_STYLE);
         if (!yaml_emitter_emit(&emitter, &event)) goto error;
@@ -133,10 +127,14 @@ int main(int argc, char *argv[])
     if (!yaml_emitter_emit(&emitter, &event)) goto error;
 
     yaml_emitter_delete(&emitter);
+
+    destroy_fruits(&list);
     return 0;
 
 error:
     fprintf(stderr, "Failed to emit event %d: %s\n", event.type, emitter.problem);
     yaml_emitter_delete(&emitter);
     return 1;
+
+    return 0;
 }

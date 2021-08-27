@@ -1,23 +1,26 @@
 
 all: emit scan parse
 
-emit.o: emit.c
-	gcc -c emit.c -g -O0 -Wall
+fruit.o: fruit.c fruit.h
+	gcc -c -g -O0 -Wall fruit.c
 
-emit: emit.o
-	gcc -o emit emit.o -lyaml
+emit.o: emit.c fruit.h
+	gcc -c -g -O0 -Wall emit.c
+
+emit: fruit.o emit.o
+	gcc -o emit fruit.o emit.o -lyaml
 
 scan.o: scan.c
-	gcc -c scan.c -g -O0 -Wall
+	gcc -c -g -O0 -Wall scan.c
 
 scan: scan.o
 	gcc -o scan scan.o -lyaml
 
-parse.o: parse.c
-	gcc -c parse.c -g -O0 -Wall
+parse.o: parse.c fruit.h
+	gcc -c -g -O0 -Wall parse.c
 
-parse: parse.o
-	gcc -o parse parse.o -lyaml
+parse: fruit.o parse.o
+	gcc -o parse fruit.o parse.o -lyaml
 
 clean:
 	rm -f emit scan parse
