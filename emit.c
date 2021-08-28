@@ -135,6 +135,4 @@ error:
     fprintf(stderr, "Failed to emit event %d: %s\n", event.type, emitter.problem);
     yaml_emitter_delete(&emitter);
     return 1;
-
-    return 0;
 }
