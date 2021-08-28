@@ -28,49 +28,50 @@ void print_event(yaml_event_t *event)
     switch (event->type) {
     case YAML_NO_EVENT:
         indent(level);
-        printf("no-event\n");
+        printf("no-event (%d)\n", event->type);
         break;
     case YAML_STREAM_START_EVENT:
         indent(level++);
-        printf("stream-start-event\n");
+        printf("stream-start-event (%d)\n", event->type);
         break;
     case YAML_STREAM_END_EVENT:
         indent(--level);
-        printf("stream-end-event\n");
+        printf("stream-end-event (%d)\n", event->type);
         break;
     case YAML_DOCUMENT_START_EVENT:
         indent(level++);
-        printf("document-start-event\n");
+        printf("document-start-event (%d)\n", event->type);
         break;
     case YAML_DOCUMENT_END_EVENT:
         indent(--level);
-        printf("document-end-event\n");
+        printf("document-end-event (%d)\n", event->type);
         break;
     case YAML_ALIAS_EVENT:
         indent(level);
-        printf("alias-event\n");
+        printf("alias-event (%d)\n", event->type);
         break;
     case YAML_SCALAR_EVENT:
         indent(level);
-        printf("scalar-event={value=\"%s\", length=%d}\n",
-                STRVAL(event->data.scalar.value),
-                (int)event->data.scalar.length);
+        printf("scalar-event (%d) = {value=\"%s\", length=%d}\n",
+               event->type,
+               STRVAL(event->data.scalar.value),
+               (int)event->data.scalar.length);
         break;
     case YAML_SEQUENCE_START_EVENT:
         indent(level++);
-        printf("sequence-start-event\n");
+        printf("sequence-start-event (%d)\n", event->type);
         break;
     case YAML_SEQUENCE_END_EVENT:
         indent(--level);
-        printf("sequence-end-event\n");
+        printf("sequence-end-event (%d)\n", event->type);
         break;
     case YAML_MAPPING_START_EVENT:
         indent(level++);
-        printf("mapping-start-event\n");
+        printf("mapping-start-event (%d)\n", event->type);
         break;
     case YAML_MAPPING_END_EVENT:
         indent(--level);
-        printf("mapping-end-event\n");
+        printf("mapping-end-event (%d)\n", event->type);
         break;
     }
     if (level < 0) {
