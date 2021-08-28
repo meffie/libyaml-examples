@@ -36,7 +36,7 @@ bail_alloc(size_t size)
 char *
 bail_strdup(const char *s)
 {
-    char *c = strdup(s);
+    char *c = strdup(s ? s : "");
     if (!c) {
         bail("out of memory");
     }

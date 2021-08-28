@@ -36,25 +36,42 @@
 
 #include "fruit.h"
 
-/* Our example parser states. */
-enum state_value {
-    START,
-    ACCEPT_SECTION,
-    ACCEPT_LIST,
-    ACCEPT_VALUES,
-    ACCEPT_KEY,
-    ACCEPT_VALUE,
-    STOP,
-    ERROR,
+/* Set environment variable DEBUG=1 to enable debug output. */
+int debug = 0;
+
+/* yaml_* functions return 1 on success and 0 on failure. */
+enum status {
+    SUCCESS = 1,
+    FAILURE = 0
 };
 
+/* Our example parser states. */
+enum state {
+    STATE_START,
+    STATE_STREAM,
+    STATE_DOCUMENT,
+    STATE_SECTION,
+    STATE_LIST,
+    STATE_VALUES,
+    STATE_KEY,
+    STATE_VALUE,
+    STATE_STOP
+};
+
+/* Supported yaml keys. */
+enum key {
+    KEY_FRUIT,
+    KEY_NAME,
+    KEY_COLOR,
+    KEY_COUNT
+};
+
+/* Our application parser state data. */
 struct parser_state {
-    enum state_value state;
-    int accepted;
-    int error;
-    char *key;
-    char *value;
-    struct fruit data;
+    enum state state;      /* The current parse state */
+    enum key key;          /* Last key name seen. */
+    struct fruit f;        /* Fruit data elements seen. */
+    struct fruits flist;   /* List of 'fruit' objects seen. */
 };
 
 /*
@@ -66,11 +83,11 @@ struct parser_state {
  *
  *    stream ::= STREAM-START document* STREAM-END
  *    document ::= DOCUMENT-START section* DOCUMENT-END
- *    section ::= MAPPING-START (key list) MAPPING-END
+ *    section ::= MAPPING-START ("fruit" list) MAPPING-END
  *    list ::= SEQUENCE-START values* SEQUENCE-END
  *    values ::= MAPPING-START (key value)* MAPPING-END
- *    key = SCALAR
- *    value = SCALAR
+ *    key ::= "name" | "color" | "count"
+ *    value ::= SCALAR
  *
  * For example:
  *
@@ -103,147 +120,195 @@ struct parser_state {
  */
 int consume_event(struct parser_state *s, yaml_event_t *event)
 {
-    s->accepted = 0;
+    char *value;
+
+    if (debug) {
+        printf("state=%d event=%d\n", s->state, event->type);
+    }
     switch (s->state) {
-    case START:
+    case STATE_START:
         switch (event->type) {
-        case YAML_MAPPING_START_EVENT:
-            s->state = ACCEPT_SECTION;
+        case YAML_STREAM_START_EVENT:
+            s->state = STATE_STREAM;
             break;
-        case YAML_SCALAR_EVENT:
-            fprintf(stderr, "Ignoring unexpected scalar: %s\n",
-                    (char*)event->data.scalar.value);
-            break;
-        case YAML_SEQUENCE_START_EVENT:
-            fprintf(stderr, "Unexpected sequence.\n");
-            s->state = ERROR;
-            break;
-        case YAML_STREAM_END_EVENT: s->state = STOP; break;
         default:
-            break;
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
         }
         break;
-    case ACCEPT_SECTION:
+     case STATE_STREAM:
+        switch (event->type) {
+        case YAML_DOCUMENT_START_EVENT:
+            s->state = STATE_DOCUMENT;
+            break;
+        case YAML_STREAM_END_EVENT:
+            s->state = STATE_STOP;  /* All done. */
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+     case STATE_DOCUMENT:
+        switch (event->type) {
+        case YAML_MAPPING_START_EVENT:
+            s->state = STATE_SECTION;
+            break;
+        case YAML_DOCUMENT_END_EVENT:
+            s->state = STATE_STREAM;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+    case STATE_SECTION:
         switch (event->type) {
         case YAML_SCALAR_EVENT:
-            if (strcmp((char*)event->data.scalar.value, "fruit") == 0) {
-               s->state = ACCEPT_LIST;
+            value = (char *)event->data.scalar.value;
+            if (strcmp(value, "fruit") == 0) {
+               s->state = STATE_LIST;
             } else {
-               fprintf(stderr, "Unexpected scalar: %s\n",
-                      (char*)event->data.scalar.value);
-               s->state = ERROR;
+               fprintf(stderr, "Unexpected scalar: %s\n", value);
+               return FAILURE;
             }
             break;
-        default:
-            fprintf(stderr, "Unexpected event while getting scalar: %d\n", event->type);
-            s->state = ERROR;
+        case YAML_DOCUMENT_END_EVENT:
+            s->state = STATE_STREAM;
             break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
         }
         break;
-    case ACCEPT_LIST:
+    case STATE_LIST:
         switch (event->type) {
-        case YAML_SEQUENCE_START_EVENT: s->state = ACCEPT_VALUES; break;
-        default:
-            fprintf(stderr, "Unexpected event while getting sequence: %d\n", event->type);
-            s->state = ERROR;
-            break;
-        }
-        break;
-    case ACCEPT_VALUES:
-        switch (event->type) {
-        case YAML_MAPPING_START_EVENT:
-            memset(&(s->data), 0, sizeof(s->data));
-            s->state = ACCEPT_KEY;
-            break;
-        case YAML_SEQUENCE_END_EVENT: s->state = START; break;
-        case YAML_DOCUMENT_END_EVENT: s->state = START; break;
-        default:
-            fprintf(stderr, "Unexpected event while getting mapped values: %d\n",
-                    event->type);
-            s->state = ERROR;
-            break;
-        }
-        break;
-    case ACCEPT_KEY:
-        switch (event->type) {
-        case YAML_SCALAR_EVENT:
-            s->key = strdup((char*)event->data.scalar.value);
-            s->state = ACCEPT_VALUE;
+        case YAML_SEQUENCE_START_EVENT:
+            s->state = STATE_VALUES;
             break;
         case YAML_MAPPING_END_EVENT:
-            s->accepted = 1;
-            s->state = ACCEPT_VALUES;
+            s->state = STATE_SECTION;
             break;
         default:
-            fprintf(stderr, "Unexpected event while getting key: %d\n",
-                    event->type);
-            s->state = ERROR;
-            break;
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
         }
         break;
-    case ACCEPT_VALUE:
+    case STATE_VALUES:
+        switch (event->type) {
+        case YAML_MAPPING_START_EVENT:
+            s->state = STATE_KEY;
+            break;
+        case YAML_SEQUENCE_END_EVENT:
+            s->state = STATE_LIST;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+    case STATE_KEY:
         switch (event->type) {
         case YAML_SCALAR_EVENT:
-            s->value = (char*)event->data.scalar.value;
-            if (strcmp(s->key, "name") == 0) {
-                s->data.name = strdup((char*)s->value);
-            } else if (strcmp(s->key, "color") == 0) {
-                s->data.color = strdup((char*)s->value);
-            } else if (strcmp(s->key, "count") == 0) {
-                s->data.count = atoi(s->value);
+            value = (char *)event->data.scalar.value;
+            if (strcmp(value, "name") == 0) {
+                s->key = KEY_NAME;
+            } else if (strcmp(value, "color") == 0) {
+                s->key = KEY_COLOR;
+            } else if (strcmp(value, "count") == 0) {
+                s->key = KEY_COUNT;
             } else {
-                fprintf(stderr, "Ignoring unknown key: %s\n", s->key);
+                fprintf(stderr, "Unexpected key: %s\n", value);
+                return FAILURE;
             }
-            free(s->key);
-            s->state = ACCEPT_KEY;
+            s->state = STATE_VALUE;
+            break;
+        case YAML_MAPPING_END_EVENT:
+            add_fruit(&s->flist, s->f.name, s->f.color, s->f.count);
+            free(s->f.name);
+            free(s->f.color);
+            memset(&s->f, 0, sizeof(s->f));
+            s->state = STATE_VALUES;
             break;
         default:
-            fprintf(stderr, "Unexpected event while getting value: %d\n",
-                    event->type);
-            s->state = ERROR;
-            break;
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
         }
         break;
-    case ERROR:
-    case STOP:
+    case STATE_VALUE:
+        switch (event->type) {
+        case YAML_SCALAR_EVENT:
+            value = (char*)event->data.scalar.value;
+            if (s->key == KEY_NAME) {
+                if (s->f.name) {
+                    fprintf(stderr, "Warning: duplicate 'name' key.\n");
+                    free(s->f.name);
+                }
+                s->f.name = bail_strdup(value);
+            } else if (s->key == KEY_COLOR) {
+                if (s->f.color) {
+                    fprintf(stderr, "Warning: duplicate 'color' key.\n");
+                    free(s->f.color);
+                }
+                s->f.color = bail_strdup(value);
+            } else if (s->key == KEY_COUNT) {
+                s->f.count = atoi(value);
+            } else {
+                fprintf(stderr, "Unknown key: %d\n", s->key);
+                return FAILURE;
+            }
+            s->state = STATE_KEY;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+    case STATE_STOP:
         break;
     }
-    return (s->state == ERROR ? 0 : 1);
+    return SUCCESS;
 }
 
-int main(int argc, char *argv[])
+int
+main(int argc, char *argv[])
 {
+    enum status status;
+    struct parser_state state;
     yaml_parser_t parser;
     yaml_event_t event;
-    struct parser_state state = {.state=START, .accepted=0, .error=0};
-    struct fruits list = {.head=NULL, .tail=NULL};
 
+    if (getenv("DEBUG")) {
+        debug = 1;
+    }
+
+    memset(&state, 0, sizeof(state));
+    state.state = STATE_START;
     yaml_parser_initialize(&parser);
     yaml_parser_set_input_file(&parser, stdin);
-
     do {
-        if (!yaml_parser_parse(&parser, &event)) {
-            goto error;
+        status = yaml_parser_parse(&parser, &event);
+        if (status == FAILURE) {
+            fprintf(stderr, "yaml_parser_parse error\n");
+            goto done;
         }
-        if (!consume_event(&state, &event)) {
-            goto error;
-        }
-        if (state.accepted) {
-            add_fruit(&list, state.data.name, state.data.color, state.data.count);
+        status = consume_event(&state, &event);
+        if (status == FAILURE) {
+            fprintf(stderr, "consume_event error\n");
+            goto done;
         }
         yaml_event_delete(&event);
-    } while (state.state != STOP);
+    } while (state.state != STATE_STOP);
 
-    yaml_parser_delete(&parser);
-
-    for (struct fruit *f = list.head; f; f = f->next) {
+    /* Output the parsed data. */
+    for (struct fruit *f = state.flist.head; f; f = f->next) {
         printf("name=%s, color=%s, count=%d\n", f->name, f->color, f->count);
     }
-    destroy_fruits(&list);
 
-    return 0;
-
-error:
+done:
+    free(state.f.name);
+    free(state.f.color);
+    destroy_fruits(&state.flist);
     yaml_parser_delete(&parser);
-    return 1;
+    return (status == SUCCESS ? EXIT_SUCCESS : EXIT_FAILURE);
 }
