@@ -1,8 +1,11 @@
 /*
  * Example libyaml parser.
  *
- * This is a basic example to demonstrate how to convert yaml to raw data
- * using the libyaml emitter API. Example yaml data to be parsed:
+ * This is a basic example to demonstrate how to convert yaml to c language
+ * data objects using the libyaml emitter API.  For details about libyaml, see
+ * the libyaml project page http://pyyaml.org/wiki/LibYAML
+ *
+ * Example yaml data to be parsed:
  *
  *    $ cat fruit.yaml
  *    ---
@@ -10,29 +13,82 @@
  *    - name: apple
  *      color: red
  *      count: 12
+ *      varieties:
+ *      - name: macintosh
+ *        seedless: false
+ *      - name: granny smith
+ *        seedless: false
  *    - name: orange
  *      color: orange
  *      count: 3
- *    - name: bannana
- *      color: yellow
- *      count: 4
- *    - name: mango
- *      color: green
- *      count: 1
  *    ...
  *
- *    $ ./parse < fruit.yaml
- *    name=apple, color=red, count=12
- *    name=orange, color=orange, count=3
- *    name=bannana, color=yellow, count=4
- *    name=mango, color=green, count=1
+ * The sequence of yaml events supported is:
  *
- * See the libyaml project page http://pyyaml.org/wiki/LibYAML
+ *    <stream>       ::= STREAM-START <document> STREAM-END
+ *    <document>     ::= DOCUMENT-START MAPPING-START "fruit" <fruit-list> MAPPING-END DOCUMENT-END
+ *    <fruit-list>   ::= SEQUENCE-START <fruit-obj>* SEQUENCE-END
+ *    <fruit-obj>    ::= MAPPING-START <fruit-data>* MAPPING-END
+ *    <fruit-data>   ::= "name" <string> |
+ *                       "color" <string> |
+ *                       "count" <integer> |
+ *                       "varieties" <variety-list>
+ *    <variety-list> ::= SEQUENCE-START <variety-obj>* SEQUENCE-END
+ *    <variety-obj>  ::= MAPPING-START <variety-data>* MAPPING-END
+ *    <variety-data> ::= "name" <string> |
+ *                       "color" <string> |
+ *                       "seedless" (0|1) |
+ *
+ * For example:
+ *
+ *    $ cat fruit.yaml | ./scan
+ *    stream-start-event (1)
+ *      document-start-event (3)
+ *        mapping-start-event (9)
+ *          scalar-event (6) = {value="fruit", length=5}
+ *          sequence-start-event (7)
+ *            mapping-start-event (9)
+ *              scalar-event (6) = {value="name", length=4}
+ *              scalar-event (6) = {value="apple", length=5}
+ *              scalar-event (6) = {value="color", length=5}
+ *              scalar-event (6) = {value="red", length=3}
+ *              scalar-event (6) = {value="count", length=5}
+ *              scalar-event (6) = {value="12", length=2}
+ *              scalar-event (6) = {value="varieties", length=9}
+ *              sequence-start-event (7)
+ *                mapping-start-event (9)
+ *                  scalar-event (6) = {value="name", length=4}
+ *                  scalar-event (6) = {value="macintosh", length=9}
+ *                  scalar-event (6) = {value="seedless", length=8}
+ *                  scalar-event (6) = {value="false", length=5}
+ *                mapping-end-event (10)
+ *                mapping-start-event (9)
+ *                  scalar-event (6) = {value="name", length=4}
+ *                  scalar-event (6) = {value="granny smith", length=12}
+ *                  scalar-event (6) = {value="seedless", length=8}
+ *                  scalar-event (6) = {value="false", length=5}
+ *                mapping-end-event (10)
+ *              sequence-end-event (8)
+ *            mapping-end-event (10)
+ *            mapping-start-event (9)
+ *              scalar-event (6) = {value="name", length=4}
+ *              scalar-event (6) = {value="orange", length=6}
+ *              scalar-event (6) = {value="color", length=5}
+ *              scalar-event (6) = {value="orange", length=6}
+ *              scalar-event (6) = {value="count", length=5}
+ *              scalar-event (6) = {value="3", length=1}
+ *            mapping-end-event (10)
+ *          sequence-end-event (8)
+ *        mapping-end-event (10)
+ *      document-end-event (4)
+ *    stream-end-event (2)
+ *
  */
 #include <yaml.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 
 #include "fruit.h"
 
@@ -47,76 +103,67 @@ enum status {
 
 /* Our example parser states. */
 enum state {
-    STATE_START,
-    STATE_STREAM,
-    STATE_DOCUMENT,
-    STATE_SECTION,
-    STATE_LIST,
-    STATE_VALUES,
-    STATE_KEY,
-    STATE_VALUE,
-    STATE_STOP
-};
+    STATE_START,    /* start state */
+    STATE_STREAM,   /* start/end stream */
+    STATE_DOCUMENT, /* start/end document */
+    STATE_SECTION,  /* top level */
 
-/* Supported yaml keys. */
-enum key {
-    KEY_FRUIT,
-    KEY_NAME,
-    KEY_COLOR,
-    KEY_COUNT
+    STATE_FLIST,    /* fruit list */
+    STATE_FVALUES,  /* fruit key-value pairs */
+    STATE_FKEY,     /* fruit key */
+    STATE_FNAME,    /* fruit name value */
+    STATE_FCOLOR,   /* fruit color value */
+    STATE_FCOUNT,   /* fruit count value */
+
+    STATE_VLIST,    /* varieties list */
+    STATE_VVALUES,  /* variety key-value pairs */
+    STATE_VKEY,     /* variety key */
+    STATE_VNAME,    /* variety name */
+    STATE_VCOLOR,   /* variety color */
+    STATE_VSEEDLESS,/* variety seedless */
+
+    STATE_STOP      /* end state */
 };
 
 /* Our application parser state data. */
 struct parser_state {
     enum state state;      /* The current parse state */
-    enum key key;          /* Last key name seen. */
-    struct fruit f;        /* Fruit data elements seen. */
-    struct fruits flist;   /* List of 'fruit' objects seen. */
+    struct fruit f;        /* Fruit data elements. */
+    struct variety v;      /* Variety data elements. */
+    struct variety *vlist; /* List of 'variety' objects. */
+    struct fruit *flist;   /* List of 'fruit' objects. */
 };
+
+/*
+ * Convert a yaml boolean string to a boolean value (true|false).
+ */
+int
+get_boolean(const char *string, bool *value)
+{
+    char *t[] = {"y", "Y", "yes", "Yes", "YES", "true", "True", "TRUE", "on", "On", "ON", NULL};
+    char *f[] = {"n", "N", "no", "No", "NO", "false", "False", "FALSE", "off", "Off", "OFF", NULL};
+    char **p;
+
+    for (p = t; *p; p++) {
+        if (strcmp(string, *p) == 0) {
+            *value = true;
+            return 0;
+        }
+    }
+    for (p = f; *p; p++) {
+        if (strcmp(string, *p) == 0) {
+            *value = false;
+            return 0;
+        }
+    }
+    return EINVAL;
+}
+
 
 /*
  * Consume yaml events generated by the libyaml parser to
  * import our data into raw c data structures. Error processing
  * is keep to a mimimum since this is just an example.
- *
- * The expected sequence of events is:
- *
- *    stream ::= STREAM-START document* STREAM-END
- *    document ::= DOCUMENT-START section* DOCUMENT-END
- *    section ::= MAPPING-START ("fruit" list) MAPPING-END
- *    list ::= SEQUENCE-START values* SEQUENCE-END
- *    values ::= MAPPING-START (key value)* MAPPING-END
- *    key ::= "name" | "color" | "count"
- *    value ::= SCALAR
- *
- * For example:
- *
- *    stream-start-event
- *      document-start-event
- *        mapping-start-event
- *          scalar-event={value="fruit", length=5}
- *          sequence-start-event
- *            mapping-start-event
- *              scalar-event={value="name", length=4}
- *              scalar-event={value="apple", length=5}
- *              scalar-event={value="color", length=5}
- *              scalar-event={value="red", length=3}
- *              scalar-event={value="count", length=5}
- *              scalar-event={value="12", length=2}
- *            mapping-end-event
- *            mapping-start-event
- *              scalar-event={value="name", length=4}
- *              scalar-event={value="orange", length=6}
- *              scalar-event={value="color", length=5}
- *              scalar-event={value="orange", length=6}
- *              scalar-event={value="count", length=5}
- *              scalar-event={value="3", length=1}
- *            mapping-end-event
- *          sequence-end-event
- *        mapping-end-event
- *      document-end-event
- *    stream-end-event
- *
  */
 int consume_event(struct parser_state *s, yaml_event_t *event)
 {
@@ -136,6 +183,7 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
             return FAILURE;
         }
         break;
+
      case STATE_STREAM:
         switch (event->type) {
         case YAML_DOCUMENT_START_EVENT:
@@ -149,6 +197,7 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
             return FAILURE;
         }
         break;
+
      case STATE_DOCUMENT:
         switch (event->type) {
         case YAML_MAPPING_START_EVENT:
@@ -162,12 +211,13 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
             return FAILURE;
         }
         break;
+
     case STATE_SECTION:
         switch (event->type) {
         case YAML_SCALAR_EVENT:
             value = (char *)event->data.scalar.value;
             if (strcmp(value, "fruit") == 0) {
-               s->state = STATE_LIST;
+               s->state = STATE_FLIST;
             } else {
                fprintf(stderr, "Unexpected scalar: %s\n", value);
                return FAILURE;
@@ -181,10 +231,11 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
             return FAILURE;
         }
         break;
-    case STATE_LIST:
+
+    case STATE_FLIST:
         switch (event->type) {
         case YAML_SEQUENCE_START_EVENT:
-            s->state = STATE_VALUES;
+            s->state = STATE_FVALUES;
             break;
         case YAML_MAPPING_END_EVENT:
             s->state = STATE_SECTION;
@@ -194,76 +245,197 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
             return FAILURE;
         }
         break;
-    case STATE_VALUES:
+
+    case STATE_FVALUES:
         switch (event->type) {
         case YAML_MAPPING_START_EVENT:
-            s->state = STATE_KEY;
+            s->state = STATE_FKEY;
             break;
         case YAML_SEQUENCE_END_EVENT:
-            s->state = STATE_LIST;
+            s->state = STATE_FLIST;
             break;
         default:
             fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
             return FAILURE;
         }
         break;
-    case STATE_KEY:
+
+    case STATE_FKEY:
         switch (event->type) {
         case YAML_SCALAR_EVENT:
             value = (char *)event->data.scalar.value;
             if (strcmp(value, "name") == 0) {
-                s->key = KEY_NAME;
+                s->state = STATE_FNAME;
             } else if (strcmp(value, "color") == 0) {
-                s->key = KEY_COLOR;
+                s->state = STATE_FCOLOR;
             } else if (strcmp(value, "count") == 0) {
-                s->key = KEY_COUNT;
+                s->state = STATE_FCOUNT;
+            } else if (strcmp(value, "varieties") == 0) {
+                s->state = STATE_VLIST;
             } else {
                 fprintf(stderr, "Unexpected key: %s\n", value);
                 return FAILURE;
             }
-            s->state = STATE_VALUE;
             break;
         case YAML_MAPPING_END_EVENT:
-            add_fruit(&s->flist, s->f.name, s->f.color, s->f.count);
+            add_fruit(&s->flist, s->f.name, s->f.color, s->f.count, s->vlist);
             free(s->f.name);
             free(s->f.color);
             memset(&s->f, 0, sizeof(s->f));
-            s->state = STATE_VALUES;
+            s->vlist = NULL;
+            s->state = STATE_FVALUES;
             break;
         default:
             fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
             return FAILURE;
         }
         break;
-    case STATE_VALUE:
+
+    case STATE_FNAME:
         switch (event->type) {
         case YAML_SCALAR_EVENT:
-            value = (char*)event->data.scalar.value;
-            if (s->key == KEY_NAME) {
-                if (s->f.name) {
-                    fprintf(stderr, "Warning: duplicate 'name' key.\n");
-                    free(s->f.name);
-                }
-                s->f.name = bail_strdup(value);
-            } else if (s->key == KEY_COLOR) {
-                if (s->f.color) {
-                    fprintf(stderr, "Warning: duplicate 'color' key.\n");
-                    free(s->f.color);
-                }
-                s->f.color = bail_strdup(value);
-            } else if (s->key == KEY_COUNT) {
-                s->f.count = atoi(value);
-            } else {
-                fprintf(stderr, "Unknown key: %d\n", s->key);
-                return FAILURE;
+            if (s->f.name) {
+                fprintf(stderr, "Warning: duplicate 'name' key.\n");
+                free(s->f.name);
             }
-            s->state = STATE_KEY;
+            s->f.name = bail_strdup((char *)event->data.scalar.value);
+            s->state = STATE_FKEY;
             break;
         default:
             fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
             return FAILURE;
         }
         break;
+
+    case STATE_FCOLOR:
+        switch (event->type) {
+        case YAML_SCALAR_EVENT:
+            if (s->f.color) {
+                fprintf(stderr, "Warning: duplicate 'color' key.\n");
+                free(s->f.color);
+            }
+            s->f.color = bail_strdup((char *)event->data.scalar.value);
+            s->state = STATE_FKEY;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
+    case STATE_FCOUNT:
+        switch (event->type) {
+        case YAML_SCALAR_EVENT:
+            s->f.count = atoi((char *)event->data.scalar.value);
+            s->state = STATE_FKEY;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
+    case STATE_VLIST:
+        switch (event->type) {
+        case YAML_SEQUENCE_START_EVENT:
+            s->state = STATE_VVALUES;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
+    case STATE_VVALUES:
+        switch (event->type) {
+        case YAML_MAPPING_START_EVENT:
+            s->state = STATE_VKEY;
+            break;
+        case YAML_SEQUENCE_END_EVENT:
+            s->state = STATE_FKEY;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
+    case STATE_VKEY:
+        switch (event->type) {
+        case YAML_SCALAR_EVENT:
+            value = (char *)event->data.scalar.value;
+            if (strcmp(value, "name") == 0) {
+                s->state = STATE_VNAME;
+            } else if (strcmp(value, "color") == 0) {
+                s->state = STATE_VCOLOR;
+            } else if (strcmp(value, "seedless") == 0) {
+                s->state = STATE_VSEEDLESS;
+            } else {
+                fprintf(stderr, "Unexpected key: %s\n", value);
+                return FAILURE;
+            }
+            break;
+        case YAML_MAPPING_END_EVENT:
+            add_variety(&s->vlist, s->v.name, s->v.color, s->v.seedless);
+            free(s->v.name);
+            free(s->v.color);
+            memset(&s->v, 0, sizeof(s->v));
+            s->state = STATE_VVALUES;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
+    case STATE_VNAME:
+        switch (event->type) {
+        case YAML_SCALAR_EVENT:
+            if (s->v.name) {
+                fprintf(stderr, "Warning: duplicate 'name' key.\n");
+                free(s->v.name);
+            }
+            s->v.name = bail_strdup((char *)event->data.scalar.value);
+            s->state = STATE_VKEY;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
+    case STATE_VCOLOR:
+        switch (event->type) {
+        case YAML_SCALAR_EVENT:
+            if (s->v.color) {
+                fprintf(stderr, "Warning: duplicate 'color' key.\n");
+                free(s->v.color);
+            }
+            s->v.color = bail_strdup((char *)event->data.scalar.value);
+            s->state = STATE_VKEY;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
+    case STATE_VSEEDLESS:
+        switch (event->type) {
+        case YAML_SCALAR_EVENT:
+            if (get_boolean((char *)event->data.scalar.value, &s->v.seedless)) {
+                fprintf(stderr, "Invalid boolean string value: %s\n",
+                       (char *)event->data.scalar.value);
+                return FAILURE;
+            }
+            s->state = STATE_VKEY;
+            break;
+        default:
+            fprintf(stderr, "Unexpected event %d in state %d.\n", event->type, s->state);
+            return FAILURE;
+        }
+        break;
+
     case STATE_STOP:
         break;
     }
@@ -273,6 +445,7 @@ int consume_event(struct parser_state *s, yaml_event_t *event)
 int
 main(int argc, char *argv[])
 {
+    int code;
     enum status status;
     struct parser_state state;
     yaml_parser_t parser;
@@ -290,25 +463,34 @@ main(int argc, char *argv[])
         status = yaml_parser_parse(&parser, &event);
         if (status == FAILURE) {
             fprintf(stderr, "yaml_parser_parse error\n");
+            code = EXIT_FAILURE;
             goto done;
         }
         status = consume_event(&state, &event);
         if (status == FAILURE) {
             fprintf(stderr, "consume_event error\n");
+            code = EXIT_FAILURE;
             goto done;
         }
         yaml_event_delete(&event);
     } while (state.state != STATE_STOP);
 
     /* Output the parsed data. */
-    for (struct fruit *f = state.flist.head; f; f = f->next) {
-        printf("name=%s, color=%s, count=%d\n", f->name, f->color, f->count);
+    for (struct fruit *f = state.flist; f; f = f->next) {
+        printf("fruit: name=%s, color=%s, count=%d\n", f->name, f->color, f->count);
+        for (struct variety *v = f->varieties; v; v = v->next) {
+            printf("  variety: name=%s, color=%s, seedless=%s\n", v->name, v->color, v->seedless ? "true" : "false");
+        }
     }
+    code = EXIT_SUCCESS;
 
 done:
     free(state.f.name);
     free(state.f.color);
+    free(state.v.name);
+    free(state.v.color);
     destroy_fruits(&state.flist);
+    destroy_varieties(&state.vlist);
     yaml_parser_delete(&parser);
-    return (status == SUCCESS ? EXIT_SUCCESS : EXIT_FAILURE);
+    return code;
 }

@@ -98,10 +98,10 @@ int main(int argc, char *argv[])
     } while (event_type != YAML_STREAM_END_EVENT);
 
     yaml_parser_delete(&parser);
-    return 0;
+    return EXIT_SUCCESS;
 
 error:
     fprintf(stderr, "Failed to parse: %s\n", parser.problem);
     yaml_parser_delete(&parser);
-    return 1;
+    return EXIT_FAILURE;
 }

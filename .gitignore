@@ -4,3 +4,5 @@ core
 emit
 scan
 parse
+.*
+!.gitignore

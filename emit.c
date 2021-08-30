@@ -2,13 +2,9 @@
  * Example libyaml emitter.
  *
  * This is a basic example to demonstrate how to convert raw data to a yaml
- * stream using the libyaml emitter API. The example data to be converted is
- * a simple linked list of structs:
+ * stream using the libyaml emitter API.
  *
- *   list -> {"apple", "red", 12} -> {"orange", "orange", 3} ->
- *           {"bannana", "yellow", 4} -> {"mango", "green", 1}
- *
- * The example data is converted into a yaml sequence of mapped values:
+ * Example output:
  *
  *    $ ./emit
  *    ---
@@ -16,15 +12,46 @@
  *    - name: apple
  *      color: red
  *      count: 12
+ *      varieties:
+ *      - name: macintosh
+ *        color: red
+ *        seedless: false
+ *      - name: granny smith
+ *        color: green
+ *        seedless: false
+ *      - name: red delicious
+ *        color: red
+ *        seedless: false
  *    - name: orange
  *      color: orange
  *      count: 3
+ *      varieties:
+ *      - name: naval
+ *        color: orange
+ *        seedless: false
+ *      - name: clementine
+ *        color: orange
+ *        seedless: true
+ *      - name: valencia
+ *        color: orange
+ *        seedless: false
  *    - name: bannana
  *      color: yellow
  *      count: 4
+ *      varieties:
+ *      - name: cavendish
+ *        color: yellow
+ *        seedless: true
+ *      - name: plantain
+ *        color: green
+ *        seedless: true
  *    - name: mango
  *      color: green
  *      count: 1
+ *      varieties:
+ *      - name: honey
+ *        color: yellow
+ *        seedless: false
  *    ...
  *
  * This example can be built and run on Linux with the commands:
@@ -46,15 +73,32 @@ int main(int argc, char *argv[])
 {
     yaml_emitter_t emitter;
     yaml_event_t event;
-    struct fruits list = {.head=NULL, .tail=NULL};
+    struct fruit *fruits = NULL;
+    struct variety *varieties = NULL;
 
-    /* Create our list of elements. */
-    add_fruit(&list, "apple", "red", 12);
-    add_fruit(&list, "orange", "orange", 3);
-    add_fruit(&list, "bannana", "yellow", 4);
-    add_fruit(&list, "mango", "green", 1);
+    /* Create our list of lists. */
+    varieties = NULL;
+    add_variety(&varieties, "macintosh", "red", false);
+    add_variety(&varieties, "granny smith", "green", false);
+    add_variety(&varieties, "red delicious", "red", false);
+    add_fruit(&fruits, "apple", "red", 12, varieties);
 
-    /* Emit list as yaml. */
+    varieties = NULL;
+    add_variety(&varieties, "naval", "orange", false);
+    add_variety(&varieties, "clementine", "orange", true);
+    add_variety(&varieties, "valencia", "orange", false);
+    add_fruit(&fruits, "orange", "orange", 3, varieties);
+
+    varieties = NULL;
+    add_variety(&varieties, "cavendish", "yellow", true);
+    add_variety(&varieties, "plantain", "green", true);
+    add_fruit(&fruits, "bannana", "yellow", 4, varieties);
+
+    varieties = NULL;
+    add_variety(&varieties, "honey", "yellow", false);
+    add_fruit(&fruits, "mango", "green", 1, varieties);
+
+    /* Emit list of lists as yaml. */
     yaml_emitter_initialize(&emitter);
     yaml_emitter_set_output_file(&emitter, stdout);
 
@@ -76,7 +120,7 @@ int main(int argc, char *argv[])
        1, YAML_ANY_SEQUENCE_STYLE);
     if (!yaml_emitter_emit(&emitter, &event)) goto error;
 
-    for (struct fruit *f = list.head; f; f = f->next) {
+    for (struct fruit *f = fruits; f; f = f->next) {
         char buffer[80];
 
         yaml_mapping_start_event_initialize(&event, NULL, (yaml_char_t *)YAML_MAP_TAG,
@@ -110,6 +154,52 @@ int main(int argc, char *argv[])
             (yaml_char_t *)buffer, strlen(buffer), 1, 0, YAML_PLAIN_SCALAR_STYLE);
         if (!yaml_emitter_emit(&emitter, &event)) goto error;
 
+        if (f->varieties) {
+            yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_STR_TAG,
+                (yaml_char_t *)"varieties", strlen("varieties"), 1, 0, YAML_PLAIN_SCALAR_STYLE);
+            if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+            yaml_sequence_start_event_initialize(&event, NULL, (yaml_char_t *)YAML_SEQ_TAG,
+                1, YAML_ANY_SEQUENCE_STYLE);
+            if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+            for (struct variety *v = f->varieties; v; v = v->next) {
+                yaml_mapping_start_event_initialize(&event, NULL, (yaml_char_t *)YAML_MAP_TAG,
+                    1, YAML_ANY_MAPPING_STYLE);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+                yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_STR_TAG,
+                    (yaml_char_t *)"name", strlen("name"), 1, 0, YAML_PLAIN_SCALAR_STYLE);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+                yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_STR_TAG,
+                    (yaml_char_t *)v->name, strlen(v->name), 1, 0, YAML_PLAIN_SCALAR_STYLE);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+                yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_STR_TAG,
+                    (yaml_char_t *)"color", strlen("color"), 1, 0, YAML_PLAIN_SCALAR_STYLE);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+                yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_STR_TAG,
+                    (yaml_char_t *)v->color, strlen(v->color), 1, 0, YAML_PLAIN_SCALAR_STYLE);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+                yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_STR_TAG,
+                    (yaml_char_t *)"seedless", strlen("seedless"), 1, 0, YAML_PLAIN_SCALAR_STYLE);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+                yaml_scalar_event_initialize(&event, NULL, (yaml_char_t *)YAML_INT_TAG,
+                    (yaml_char_t *)(v->seedless ? "true" : "false"),
+                    strlen(v->seedless ? "true" : "false"), 1, 0, YAML_PLAIN_SCALAR_STYLE);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+
+                yaml_mapping_end_event_initialize(&event);
+                if (!yaml_emitter_emit(&emitter, &event)) goto error;
+            }
+            yaml_sequence_end_event_initialize(&event);
+            if (!yaml_emitter_emit(&emitter, &event)) goto error;
+        }
+
         yaml_mapping_end_event_initialize(&event);
         if (!yaml_emitter_emit(&emitter, &event)) goto error;
     }
@@ -127,12 +217,12 @@ int main(int argc, char *argv[])
     if (!yaml_emitter_emit(&emitter, &event)) goto error;
 
     yaml_emitter_delete(&emitter);
-
-    destroy_fruits(&list);
-    return 0;
+    destroy_fruits(&fruits);
+    return EXIT_SUCCESS;
 
 error:
     fprintf(stderr, "Failed to emit event %d: %s\n", event.type, emitter.problem);
     yaml_emitter_delete(&emitter);
-    return 1;
+    destroy_fruits(&fruits);
+    return EXIT_FAILURE;
 }

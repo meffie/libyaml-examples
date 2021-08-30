@@ -5,8 +5,9 @@
  * functions for our example program.
  *
  * You'll want to handle ENOMEM errors more gracefully in a real program, but
- * to keep our example simple, just bail if we cannot allocate memory.
+ * to keep our example simple, we just bail if we cannot allocate memory.
  */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -43,58 +44,68 @@ bail_strdup(const char *s)
     return c;
 }
 
-/* Allocate a "fruit" example object. */
-struct fruit *
-create_fruit(char *name, char *color, int count)
+void
+add_fruit(struct fruit **fruits, char *name, char *color, int count, struct variety *varieties)
 {
+    /* Create fruit object. */
     struct fruit *f = bail_alloc(sizeof(*f));
     f->name = bail_strdup(name);
     f->color = bail_strdup(color);
     f->count = count;
-    return f;
+    f->varieties = varieties;
+
+    /* Append to list. */
+    if (!*fruits) {
+        *fruits = f;
+    } else {
+        struct fruit *tail = *fruits;
+        while (tail->next) {
+            tail = tail->next;
+        }
+        tail->next = f;
+    }
 }
 
 void
-destroy_fruit(struct fruit **pf)
+add_variety(struct variety **varieties, char *name, char *color, bool seedless)
 {
-    if (*pf) {
-        struct fruit *f = *pf;
+    /* Create variety object. */
+    struct variety *v = bail_alloc(sizeof(*v));
+    v->name = bail_strdup(name);
+    v->color = bail_strdup(color);
+    v->seedless = seedless;
+
+    /* Append to list. */
+    if (!*varieties) {
+        *varieties = v;
+    } else {
+        struct variety *tail = *varieties;
+        while (tail->next) {
+            tail = tail->next;
+        }
+        tail->next = v;
+    }
+}
+
+void
+destroy_fruits(struct fruit **fruits)
+{
+    for (struct fruit *f = *fruits; f; f = *fruits) {
+        *fruits = f->next;
         free(f->name);
         free(f->color);
-        free(*pf);
-        *pf = NULL;
+        destroy_varieties(&f->varieties);
+        free(f);
     }
 }
 
-/*
- * Allocate a "fruit" example and append it to a linked list.
- */
-struct fruit *
-add_fruit(struct fruits *list, char *name, char *color, int count)
-{
-    struct fruit *f = create_fruit(name, color, count);
-    if (!list->head) {
-        /* First one. */
-        list->head = f;
-        list->tail = f;
-    } else {
-        /* Append to list. */
-        list->tail->next = f;
-        list->tail = f;
-    }
-    return f;
-}
-
-/*
- * Free all the "fruits" in the linked list.
- */
 void
-destroy_fruits(struct fruits *list)
+destroy_varieties(struct variety **varieties)
 {
-    struct fruit *f;
-    for (f = list->head; f; f = list->head) {
-        list->head = f->next;
-        destroy_fruit(&f);
+    for (struct variety *v = *varieties; v; v = *varieties) {
+        *varieties = v->next;
+        free(v->name);
+        free(v->color);
+        free(v);
     }
-    list->tail = NULL;
 }
