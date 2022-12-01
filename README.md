@@ -3,6 +3,16 @@
 This is a small set of c language example programs to demonstrate how to use
 the [libyaml library](http://pyyaml.org/wiki/LibYAML).
 
+## How to build
+
+On Debian/Ubuntu, install the following packages.
+
+    $ sudo apt install gcc make libyaml-dev
+
+Build the binaries with `make`.
+
+    $ make
+
 ## Emitter example
 
 `emit.c` is a basic example to demonstrate how to convert raw c structs to a
