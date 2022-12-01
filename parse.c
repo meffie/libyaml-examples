@@ -449,7 +449,6 @@ main(int argc, char *argv[])
     enum status status;
     struct parser_state state;
     yaml_parser_t parser;
-    yaml_event_t event;
 
     if (getenv("DEBUG")) {
         debug = 1;
@@ -460,6 +459,8 @@ main(int argc, char *argv[])
     yaml_parser_initialize(&parser);
     yaml_parser_set_input_file(&parser, stdin);
     do {
+        yaml_event_t event;
+
         status = yaml_parser_parse(&parser, &event);
         if (status == FAILURE) {
             fprintf(stderr, "yaml_parser_parse error\n");
@@ -467,12 +468,12 @@ main(int argc, char *argv[])
             goto done;
         }
         status = consume_event(&state, &event);
+        yaml_event_delete(&event);
         if (status == FAILURE) {
             fprintf(stderr, "consume_event error\n");
             code = EXIT_FAILURE;
             goto done;
         }
-        yaml_event_delete(&event);
     } while (state.state != STATE_STOP);
 
     /* Output the parsed data. */
