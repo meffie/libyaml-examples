@@ -1,0 +1,46 @@
+---
+fruit:
+- name: apple
+  color: red
+  count: 12
+  varieties:
+  - name: macintosh
+    color: red
+    seedless: false
+  - name: granny smith
+    color: green
+    seedless: false
+  - name: red delicious
+    color: red
+    seedless: false
+- name: orange
+  color: orange
+  count: 3
+  varieties:
+  - name: naval
+    color: orange
+    seedless: false
+  - name: clementine
+    color: orange
+    seedless: true
+  - name: valencia
+    color: orange
+    seedless: false
+- name: bannana
+  color: yellow
+  count: 4
+  varieties:
+  - name: cavendish
+    color: yellow
+    seedless: true
+  - name: plantain
+    color: green
+    seedless: true
+- name: mango
+  color: green
+  count: 1
+  varieties:
+  - name: honey
+    color: yellow
+    seedless: false
+...
